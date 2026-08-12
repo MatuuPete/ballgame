@@ -1,0 +1,20 @@
+# Build output
+bin/
+obj/
+
+# Publish/package output (publish.ps1, package.ps1)
+dist/
+package/
+
+# Old pre-rewrite source kept locally for reference only
+_backup-pre-ui/
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS cruft
+Thumbs.db
+.DS_Store

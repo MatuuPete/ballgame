@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>WebView2Automation</RootNamespace>
+    <!-- Display name of the shipped executable. The C# namespace stays as-is
+         so no source files need touching. -->
+    <AssemblyName>KaHoopsArena</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Taskbar / Explorer / Alt-Tab icon, baked into the exe -->
+    <ApplicationIcon>app.ico</ApplicationIcon>
+
+    <Platforms>AnyCPU;x64</Platforms>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+
+    <!-- The SDK globs **/*.cs and **/*.xaml from the project folder. Anything
+         kept here for reference must be excluded BEFORE globbing, or it compiles
+         as a duplicate copy of the app. DefaultItemExcludes covers every item
+         type at once; note that ** must be a complete path segment. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);_backup-pre-ui\**;_backup*\**;dist\**;package\**</DefaultItemExcludes>
+
+    <!-- Product metadata shown in the exe's Details tab -->
+    <Product>KaHoops Arena</Product>
+    <AssemblyTitle>KaHoops Arena</AssemblyTitle>
+    <Company>KaHoops</Company>
+    <Version>1.2.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Belt and braces: valid Remove globs in case DefaultItemExcludes is
+         overridden by a Directory.Build.props further up the tree. -->
+    <Compile Remove="_backup-pre-ui\**" />
+    <Page Remove="_backup-pre-ui\**" />
+    <None Remove="_backup-pre-ui\**" />
+    <Resource Remove="_backup-pre-ui\**" />
+    <ApplicationDefinition Remove="_backup-pre-ui\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Window.Icon="app.ico" resolves against the assembly, so the file must
+         also be embedded as a Resource, not only referenced by ApplicationIcon. -->
+    <Resource Include="app.ico" />
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- JS bundles ship beside the exe so they can be edited without a rebuild. -->
+    <None Update="Scripts\bridge.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Scripts\automation.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Scripts\session-init.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Scripts\ranked.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
