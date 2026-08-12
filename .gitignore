@@ -15,6 +15,9 @@ _backup-pre-ui/
 *.user
 *.suo
 
+# Claude Code local settings (machine-specific permissions, not project config)
+.claude/
+
 # OS cruft
 Thumbs.db
 .DS_Store
