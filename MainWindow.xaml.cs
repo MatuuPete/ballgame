@@ -74,6 +74,11 @@ public partial class MainWindow : Window
     private const int MaxMatchRecords = 15;
     private readonly ObservableCollection<MatchRecord> _matchHistory = new();
 
+    // Right-panel visibility. Global (not per-profile) — it describes how the
+    // app looks, not which account is signed in.
+    private readonly UiSettings _uiSettings = UiSettings.Load();
+    private GridLength? _expandedControlPanelWidth;
+
     /// <summary>
     /// Designer/fallback constructor. Acquires the Default profile so the
     /// window is still constructible without App having resolved one.
@@ -111,6 +116,8 @@ public partial class MainWindow : Window
         StateChanged += OnWindowStateChanged;
         Loaded += async (_, _) => await InitialiseWebViewAsync();
         Closed += (_, _) => _logFlushTimer.Stop();
+
+        ApplyRightPanelVisibility(_uiSettings.RightPanelCollapsed);
     }
 
     // ==================================================================
@@ -156,6 +163,47 @@ public partial class MainWindow : Window
             : WindowState.Maximized;
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    // ==================================================================
+    // Right panel visibility
+    // ==================================================================
+    private void PanelToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        _uiSettings.RightPanelCollapsed = !_uiSettings.RightPanelCollapsed;
+        ApplyRightPanelVisibility(_uiSettings.RightPanelCollapsed);
+        _uiSettings.Save();
+    }
+
+    /// <summary>
+    /// Collapsing zeroes both the control-panel column and its splitter so
+    /// the browser column (Width="*") fills the freed space; expanding
+    /// restores whatever width was last in effect, including a manual
+    /// GridSplitter resize done before collapsing — not just the XAML default.
+    /// </summary>
+    private void ApplyRightPanelVisibility(bool collapsed)
+    {
+        if (collapsed)
+        {
+            if (ControlPanelColumn.ActualWidth > 0)
+                _expandedControlPanelWidth = new GridLength(ControlPanelColumn.ActualWidth);
+
+            ControlPanelRoot.Visibility = Visibility.Collapsed;
+            MainSplitter.Visibility = Visibility.Collapsed;
+            ControlPanelColumn.MinWidth = 0;
+            ControlPanelColumn.Width = new GridLength(0);
+            MainSplitterColumn.Width = new GridLength(0);
+            PanelToggleButton.ToolTip = "Show control panel";
+        }
+        else
+        {
+            ControlPanelColumn.MinWidth = 380;
+            ControlPanelColumn.Width = _expandedControlPanelWidth ?? new GridLength(470);
+            MainSplitterColumn.Width = new GridLength(8);
+            ControlPanelRoot.Visibility = Visibility.Visible;
+            MainSplitter.Visibility = Visibility.Visible;
+            PanelToggleButton.ToolTip = "Hide control panel";
+        }
+    }
 
     // ==================================================================
     // Profile menu
@@ -605,6 +653,7 @@ public partial class MainWindow : Window
         }
 
         var isRanked = ReferenceEquals(PlayModeTabs.SelectedItem, RankTab);
+        var isBig3 = ReferenceEquals(PlayModeTabs.SelectedItem, BigThreeTab);
 
         try
         {
@@ -642,7 +691,9 @@ public partial class MainWindow : Window
             }
 
             SetStatus("Starting...");
-            SetHint(isRanked ? "Opening the Ranked queue." : "Opening the Match Hall.");
+            SetHint(isRanked ? "Opening the Ranked queue."
+                  : isBig3 ? "Opening the BIG3 queue."
+                  : "Opening the Match Hall.");
 
             // Always reload from disk so edits take effect on the next Start
             // without republishing.
@@ -657,6 +708,16 @@ public partial class MainWindow : Window
 
                 var rankedResult = await Browser.CoreWebView2.ExecuteScriptAsync($"window.startRankedLoop({json});");
                 Log("startRankedLoop() dispatched. Immediate return: " + rankedResult, LogLevel.Debug);
+            }
+            else if (isBig3)
+            {
+                // big3.js is likewise self-contained. Its selectors are still
+                // unverified placeholders — expect this to need real tuning.
+                var big3Source = await LoadScriptAsync("big3.js");
+                await Browser.CoreWebView2.ExecuteScriptAsync(big3Source);
+
+                var big3Result = await Browser.CoreWebView2.ExecuteScriptAsync($"window.startBig3Loop({json});");
+                Log("startBig3Loop() dispatched. Immediate return: " + big3Result, LogLevel.Debug);
             }
             else
             {
@@ -825,7 +886,8 @@ public partial class MainWindow : Window
 
         var mode = (PlayModeTabs.SelectedItem as TabItem)?.Header?.ToString() ?? "";
         var implemented = ReferenceEquals(PlayModeTabs.SelectedItem, ScrimmageTab)
-                        || ReferenceEquals(PlayModeTabs.SelectedItem, RankTab);
+                        || ReferenceEquals(PlayModeTabs.SelectedItem, RankTab)
+                        || ReferenceEquals(PlayModeTabs.SelectedItem, BigThreeTab);
 
         StartButton.IsEnabled = implemented && !_isRunning;
 
@@ -904,18 +966,20 @@ public partial class MainWindow : Window
         config = new RunConfig();
         error = string.Empty;
 
-        // Rank Play has its own fields (no Full-session/Auto concept — there's
-        // no rewards-counter equivalent to "play until full" for Ranked).
-        var isRanked = ReferenceEquals(PlayModeTabs.SelectedItem, RankTab);
-        var matchCountBox = isRanked ? RankMatchCountBox : MatchCountBox;
-        var pauseSecondsBox = isRanked ? RankPauseSecondsBox : PauseSecondsBox;
+        // Rank Play and BIG3 Play have their own fields — no Full-session/Auto
+        // concept for either, since neither has a rewards-counter equivalent
+        // to "play until full". Only Scrimmage supports that preset.
+        var isScrimmage = ReferenceEquals(PlayModeTabs.SelectedItem, ScrimmageTab);
+        var isBig3 = ReferenceEquals(PlayModeTabs.SelectedItem, BigThreeTab);
+        var matchCountBox = isScrimmage ? MatchCountBox : isBig3 ? Big3MatchCountBox : RankMatchCountBox;
+        var pauseSecondsBox = isScrimmage ? PauseSecondsBox : isBig3 ? Big3PauseSecondsBox : RankPauseSecondsBox;
 
         // "Auto" (the Full session preset) sends 0, which the script reads as
         // "play out the remaining rewards".
         var matchText = matchCountBox.Text.Trim();
         int matches;
 
-        if (!isRanked && matchText.Equals(AutoMatches, StringComparison.OrdinalIgnoreCase))
+        if (isScrimmage && matchText.Equals(AutoMatches, StringComparison.OrdinalIgnoreCase))
         {
             matches = 0;
         }
@@ -1034,7 +1098,8 @@ public partial class MainWindow : Window
         // Never re-enable Start while an unimplemented mode is showing.
         var onImplementedTab = PlayModeTabs is null
                           || ReferenceEquals(PlayModeTabs.SelectedItem, ScrimmageTab)
-                          || ReferenceEquals(PlayModeTabs.SelectedItem, RankTab);
+                          || ReferenceEquals(PlayModeTabs.SelectedItem, RankTab)
+                          || ReferenceEquals(PlayModeTabs.SelectedItem, BigThreeTab);
 
         StartButton.IsEnabled = !running && onImplementedTab;
         StopButton.IsEnabled = running;
@@ -1046,6 +1111,8 @@ public partial class MainWindow : Window
         PresetFull.IsEnabled = !running;
         RankMatchCountBox.IsEnabled = !running;
         RankPauseSecondsBox.IsEnabled = !running;
+        Big3MatchCountBox.IsEnabled = !running;
+        Big3PauseSecondsBox.IsEnabled = !running;
         RunPill.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
 
         if (!running) SetHint("Press Start playing when you're ready.");

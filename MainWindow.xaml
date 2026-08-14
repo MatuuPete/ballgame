@@ -5,7 +5,7 @@
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="KaHoops Arena"
         Icon="app.ico"
-        Height="880" Width="1560"
+        Height="720" Width="1060"
         MinHeight="620" MinWidth="1020"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Bg}"
@@ -37,6 +37,9 @@
         <Geometry x:Key="GlyphMaximise">M0.5,0.5 H9.5 V9.5 H0.5 Z</Geometry>
         <Geometry x:Key="GlyphRestore">M2.5,2.5 V0.5 H9.5 V7.5 H7.5 M0.5,2.5 H7.5 V9.5 H0.5 Z</Geometry>
         <Geometry x:Key="GlyphClose">M0,0 L10,10 M10,0 L0,10</Geometry>
+        <!-- Sidebar-toggle glyph: outer frame with a vertical divider, evoking
+             a browser pane + control panel — the two things this button toggles. -->
+        <Geometry x:Key="GlyphPanelToggle">M0.5,0.5 H10.5 V9.5 H0.5 Z M6.5,0.5 V9.5</Geometry>
     </Window.Resources>
 
     <Grid>
@@ -121,6 +124,16 @@
                             Orientation="Horizontal"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
 
+                    <Button x:Name="PanelToggleButton"
+                            Style="{StaticResource CaptionButton}"
+                            Click="PanelToggleButton_Click"
+                            ToolTip="Hide control panel">
+                        <Path Data="{StaticResource GlyphPanelToggle}"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1"
+                              SnapsToDevicePixels="True"/>
+                    </Button>
+
                     <Button x:Name="MinimiseButton"
                             Style="{StaticResource CaptionButton}"
                             Click="MinimiseButton_Click"
@@ -161,8 +174,8 @@
         <Grid Grid.Row="1" Margin="8,4,8,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="420"/>
-                <ColumnDefinition Width="8"/>
-                <ColumnDefinition Width="470" MinWidth="380"/>
+                <ColumnDefinition x:Name="MainSplitterColumn" Width="8"/>
+                <ColumnDefinition x:Name="ControlPanelColumn" Width="470" MinWidth="380"/>
             </Grid.ColumnDefinitions>
 
             <!-- Browser pane -->
@@ -216,13 +229,13 @@
                 </Grid>
             </Border>
 
-            <GridSplitter Grid.Column="1" Width="8"
+            <GridSplitter x:Name="MainSplitter" Grid.Column="1" Width="8"
                           HorizontalAlignment="Stretch"
                           Background="Transparent"
                           ResizeBehavior="PreviousAndNext"/>
 
             <!-- Control panel + log console -->
-            <Grid Grid.Column="2">
+            <Grid x:Name="ControlPanelRoot" Grid.Column="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="8"/>
@@ -386,6 +399,43 @@
                                                    Margin="0,12,0,0"/>
                                     </StackPanel>
                                 </Border>
+                            </TabItem>
+
+                            <TabItem x:Name="BigThreeTab" Header="BIG3 PLAY">
+                                <StackPanel>
+
+                                <TextBlock Text="HOW MANY BIG3 SESSIONS?"
+                                           Style="{StaticResource SectionHeader}"/>
+
+                                <TextBlock Text="Queues a session, then swaps in a bench player when the target phase is reached."
+                                           Style="{StaticResource FieldHint}"
+                                           Margin="0,0,0,12"/>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Sessions to play" Style="{StaticResource FieldLabel}"/>
+                                        <TextBox x:Name="Big3MatchCountBox" Text="25"
+                                                 ToolTip="How many BIG3 sessions to play before stopping."/>
+                                        <TextBlock Text="Selectors are still unverified placeholders — expect this to need tuning."
+                                                   Style="{StaticResource FieldHint}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Rest between sessions" Style="{StaticResource FieldLabel}"/>
+                                        <TextBox x:Name="Big3PauseSecondsBox" Text="2"
+                                                 ToolTip="Seconds to wait after each session before starting the next."/>
+                                        <TextBlock Text="In seconds. 2 is a safe default."
+                                                   Style="{StaticResource FieldHint}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                </StackPanel>
                             </TabItem>
 
                         </TabControl>

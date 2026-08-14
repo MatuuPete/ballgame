@@ -158,16 +158,61 @@
     });
     if (btn) return btn;
 
-    // 2. Fallback for the Season playoffs button (the one circled in the image)
-    //    Handles slight text variations, arrows, or extra characters
-    return [...document.querySelectorAll(CLICKABLE)].find(el => {
+    // 2. Loose match, still restricted to real <button>/<a>/role="button" elements.
+    btn = [...document.querySelectorAll(CLICKABLE)].find(el => {
       const text = (el.textContent || '').toUpperCase().replace(/\s+/g, ' ').trim();
       return (
         (text.includes('PLAY GAME') || /^PLAY\s*GAME/.test(text)) &&
         isVisible(el) &&
         isEnabled(el)
       );
-    }) || null;
+    });
+    if (btn) return btn;
+
+    // 3. Playoffs bracket screen: its "PLAY GAME N" CTA is frequently a
+    // styled <div>/<span> rather than a real button/link, so CLICKABLE never
+    // matches it — and the game number is often its own nested badge/span,
+    // so no single element's OWN direct text reads "PLAY GAME N" either.
+    // Aggregated .textContent (same as tiers 1-2, just without the CLICKABLE
+    // restriction) is what actually captures it regardless of how the label
+    // is split internally. Wrapped in try/catch: the bracket screen can still
+    // be mid-transition when this runs, and a node going stale between the
+    // querySelectorAll and the getBoundingClientRect calls below would
+    // otherwise throw and surface only as an opaque "Script error".
+    try {
+      const candidates = [...document.querySelectorAll('body *')].filter(el => {
+        const text = (el.textContent || '').toUpperCase().replace(/\s+/g, ' ').trim();
+        return /^PLAY GAME\s*\d+/.test(text) && isVisible(el);
+      });
+      if (!candidates.length) return null;
+
+      // Smallest matching element is where the split text converges — the
+      // label itself, not an outer wrapper.
+      const smallest = candidates.reduce((best, el) => {
+        const a = el.getBoundingClientRect();
+        const b = best.getBoundingClientRect();
+        return (a.width * a.height) < (b.width * b.height) ? el : best;
+      });
+
+      // Return the actual control, not the label: isEnabled() is about to be
+      // called on whatever this returns, and label spans are frequently
+      // styled pointer-events:none (so clicks always land on the outer
+      // button, not gaps between letters) — checking THAT would make a
+      // perfectly clickable button read as disabled. Prefer a real
+      // CLICKABLE ancestor; failing that, climb until pointer-events stops
+      // being 'none'.
+      const clickableAncestor = smallest.closest(CLICKABLE);
+      if (clickableAncestor) return clickableAncestor;
+
+      let control = smallest;
+      for (let node = smallest, depth = 0; node && depth < 4; node = node.parentElement, depth++) {
+        if (getComputedStyle(node).pointerEvents !== 'none') { control = node; break; }
+      }
+      return control;
+    } catch (err) {
+      console.warn('  ⚠️ PLAY GAME wide-scan failed: ' + err.message);
+      return null;
+    }
   }
 
   function readDailyGamesLeft() {
@@ -236,6 +281,263 @@
     });
     if (!banner) return null;
     return directText(banner).toUpperCase().replace(/[^A-Z]/g, '');
+  }
+
+  // ==================== SCOREBOARD READERS ====================
+  // Ported from automation.js — the post-match summary screen (score, MVP
+  // card, opponent handle) is the same UI regardless of which mode queued
+  // the match, so the same heuristics apply here for Ranked/Season games.
+  // Both return null rather than guessing, so a bad read shows as 0 in the
+  // grid instead of silently inventing a plausible-looking score.
+
+  /** Set false if your score renders on the RIGHT of the opponent's. */
+  const PLAYER_SCORE_ON_LEFT = true;
+
+  /** Collects every visible element whose own text is a bare score-like number. */
+  function collectScoreNumbers({ maxTop = 1.0 } = {}) {
+    const vh = window.innerHeight;
+    const out = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (!isVisible(el)) continue;
+      const t = directText(el).trim();
+      if (!/^\d{1,3}$/.test(t)) continue;
+      const n = Number(t);
+      if (n > 250) continue;                       // scores, not clocks or ids
+      const r = el.getBoundingClientRect();
+      if (r.top > vh * maxTop) continue;
+      out.push({
+        n,
+        el,
+        cx: r.left + r.width / 2,
+        cy: r.top + r.height / 2,
+        fontSize: parseFloat(getComputedStyle(el).fontSize) || 0,
+        area: r.width * r.height
+      });
+    }
+    return out;
+  }
+
+  function pairByPosition(nums, source) {
+    if (nums.length < 2) return null;
+    const sorted = [...nums].sort((a, b) => a.cx - b.cx);
+    const left = sorted[0].n;
+    const right = sorted[sorted.length - 1].n;
+    return PLAYER_SCORE_ON_LEFT
+      ? { mine: left, theirs: right, source }
+      : { mine: right, theirs: left, source };
+  }
+
+  /**
+   * Final score, tried three ways in descending order of confidence:
+   *   1. a single element reading "110 - 125"
+   *   2. the two numbers nearest the VICTORY/DEFEAT banner
+   *   3. the two largest-font numbers on the upper half of the screen
+   */
+  function readFinalScore() {
+    const PATTERN = /\b(\d{1,3})\s*[-–—:/]\s*(\d{1,3})\b/;
+    const hits = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (!isVisible(el)) continue;
+      const own = directText(el);
+      if (!own) continue;
+      const m = own.match(PATTERN);
+      if (!m) continue;
+      const a = Number(m[1]), b = Number(m[2]);
+      if (a > 250 || b > 250) continue;
+      const rect = el.getBoundingClientRect();
+      hits.push({ mine: a, theirs: b, area: rect.width * rect.height, source: 'inline' });
+    }
+    if (hits.length) {
+      return hits.reduce((best, h) => (h.area < best.area ? h : best));
+    }
+
+    const banner = [...document.querySelectorAll('body *')].find(el => {
+      if (!isVisible(el)) return false;
+      const own = directText(el).toUpperCase().replace(/[^A-Z]/g, '');
+      return own === 'VICTORY' || own === 'DEFEAT';
+    });
+
+    if (banner) {
+      let node = banner.parentElement;
+      for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
+        const local = collectScoreNumbers().filter(c => node.contains(c.el));
+        if (local.length >= 2) {
+          const paired = pairByPosition(local, `banner+${depth}`);
+          if (paired) return paired;
+        }
+      }
+    }
+
+    const upper = collectScoreNumbers({ maxTop: 0.6 });
+    if (upper.length >= 2) {
+      const maxFont = Math.max(...upper.map(c => c.fontSize));
+      const big = upper.filter(c => c.fontSize >= maxFont * 0.85);
+      const paired = pairByPosition(big.length >= 2 ? big : upper, 'largest-font');
+      if (paired) return paired;
+    }
+
+    return null;
+  }
+
+  // ==================== MVP CARD ====================
+  // The post-match panel looks like:
+  //     MVP · PF
+  //     TIM DUNCAN          <- the player who earned it
+  //     [MNR] S1MPLE        <- the handle of whoever owns that player
+  //     36 PTS  17 REB  7 AST
+  //
+  // Either side can earn MVP, so the handle is NOT reliably the opponent —
+  // which is why these are recorded as two distinct fields.
+
+  const TAG_PATTERN = /\[[^\]]{1,12}\]/;
+  const STAT_LABELS = new Set(['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'MIN', 'FG', '3PT', 'FT', 'PF']);
+
+  /**
+   * Some names render one letter per element, which reads back as
+   * "W E W E N G". If every token is a single character, glue them together.
+   */
+  function collapseLetterSpacing(s) {
+    const parts = String(s || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 3 && parts.every(p => p.length === 1)) return parts.join('');
+    return parts.join(' ');
+  }
+
+  /** Normalises "[MNR]  S 1 M P L E" -> "[MNR] S1MPLE". */
+  function tidyHandle(raw) {
+    const text = String(raw || '').replace(/\s+/g, ' ').trim();
+    const m = text.match(/^(\[[^\]]{1,12}\])\s*(.*)$/);
+    if (!m) return collapseLetterSpacing(text);
+    const name = collapseLetterSpacing(m[2]);
+    return name ? `${m[1]} ${name}` : m[1];
+  }
+
+  function tidyName(raw) {
+    return collapseLetterSpacing(String(raw || '').replace(/\s+/g, ' ').trim());
+  }
+
+  /** Returns { mvpName, mvpHandle } from the post-match MVP panel. */
+  function readMvpCard() {
+    const badge = [...document.querySelectorAll('body *')].find(el => {
+      if (!isVisible(el)) return false;
+      const t = directText(el).toUpperCase().replace(/\s+/g, ' ').trim();
+      return /^MVP\b/.test(t) && t.length <= 24;
+    });
+
+    let container = null;
+    if (badge) {
+      let node = badge.parentElement;
+      for (let d = 0; node && d < 6; d++, node = node.parentElement) {
+        if (TAG_PATTERN.test(node.textContent || '')) { container = node; break; }
+      }
+      if (!container) container = badge.parentElement;
+    }
+
+    if (!container) {
+      const handleEl = [...document.querySelectorAll('body *')].find(el =>
+        isVisible(el) && TAG_PATTERN.test(directText(el)) && directText(el).trim().length <= 48);
+      if (!handleEl) return null;
+      container = handleEl.parentElement || handleEl;
+    }
+
+    let mvpHandle = null;
+    let bestArea = Infinity;
+    for (const el of [container, ...container.querySelectorAll('*')]) {
+      if (!isVisible(el)) continue;
+      const t = directText(el).trim();
+      if (!t || t.length > 48 || !TAG_PATTERN.test(t)) continue;
+      const r = el.getBoundingClientRect();
+      const area = r.width * r.height;
+      if (area < bestArea) { bestArea = area; mvpHandle = t; }
+    }
+
+    const candidates = [];
+    for (const el of container.querySelectorAll('*')) {
+      if (!isVisible(el)) continue;
+      const t = directText(el).trim();
+      if (!t || t.length < 2 || t.length > 32) continue;
+      const up = t.toUpperCase().replace(/\s+/g, ' ');
+      if (TAG_PATTERN.test(t)) continue;
+      if (/^MVP\b/.test(up)) continue;
+      if (STAT_LABELS.has(up)) continue;
+      if (/^[\d\s.·•|-]+$/.test(t)) continue;
+      if (!/[A-Za-z]/.test(t)) continue;
+      const fs = parseFloat(getComputedStyle(el).fontSize) || 0;
+      candidates.push({ t, fs });
+    }
+    candidates.sort((a, b) => b.fs - a.fs);
+
+    return {
+      mvpName: candidates.length ? tidyName(candidates[0].t) : null,
+      mvpHandle: mvpHandle ? tidyHandle(mvpHandle) : null
+    };
+  }
+
+  /**
+   * Opponent handle — scans the whole document for a clan-tagged handle
+   * like "[MNR] S1MPLE" and takes the RIGHTMOST one, since the opponent
+   * occupies the right side of the scoreboard. Deliberately NOT scoped to
+   * the MVP card: that shows whoever earned MVP, which is often your own
+   * player.
+   */
+  function readOpponentName() {
+    const TAGGED = /\[[^\]]{1,12}\]\s*\S+/;
+
+    const tagged = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (!isVisible(el)) continue;
+      const own = directText(el).trim();
+      if (!own || own.length > 48) continue;
+      if (!TAGGED.test(own.toUpperCase())) continue;
+      const rect = el.getBoundingClientRect();
+      tagged.push({
+        name: tidyHandle(own),
+        centerX: rect.left + rect.width / 2
+      });
+    }
+
+    if (!tagged.length) return null;
+    tagged.sort((a, b) => b.centerX - a.centerX);
+    return tagged[0].name;
+  }
+
+  /**
+   * Sends one structured match record to the WPF host, which prepends it to
+   * the Match History grid. Everything is coerced here rather than in C#:
+   * postMessage will happily ship a NaN or an undefined.
+   */
+  function sendMatchSummaryToHost(outcome, myScore, opponentScore, mvpName, opponentName) {
+    const payload = {
+      outcome: String(outcome || 'UNKNOWN').toUpperCase(),
+      myScore: Number.isFinite(Number(myScore)) ? Number(myScore) : 0,
+      opponentScore: Number.isFinite(Number(opponentScore)) ? Number(opponentScore) : 0,
+      mvpName: String(mvpName || '—').trim(),
+      opponentName: String(opponentName || '—').trim()
+    };
+    bridge.send('MATCH_SUMMARY', payload);
+    return payload;
+  }
+
+  /**
+   * Assembles and dispatches the record for a finished match. Reads the
+   * scoreboard BEFORE the caller clicks CONTINUE — the summary screen is the
+   * only place these values exist, and the click tears it down.
+   */
+  function reportMatchSummary(result) {
+    const score = readFinalScore();
+    const card = readMvpCard();
+    const opponent = readOpponentName();
+
+    if (!score) console.warn('  ⚠️ Could not read final score — recording 0-0');
+    if (!card || !card.mvpName) console.warn('  ⚠️ Could not read MVP player name');
+    if (!opponent) console.warn('  ⚠️ Could not read opponent name');
+
+    return sendMatchSummaryToHost(
+      result || 'UNKNOWN',
+      score ? score.mine : 0,
+      score ? score.theirs : 0,
+      card ? card.mvpName : null,
+      opponent
+    );
   }
 
   // ==================== GENERIC WAITER ====================
@@ -754,6 +1056,11 @@
     const result = readMatchResult();
     if (result) console.log(result === 'VICTORY' ? '  🏆 VICTORY' : '  💀 DEFEAT');
 
+    // Read the scoreboard BEFORE clicking CONTINUE — the summary screen is
+    // the only place these values exist, and the click tears it down.
+    const record = reportMatchSummary(result);
+    console.log(`  📋 Recorded: ${record.outcome} ${record.myScore}-${record.opponentScore} vs ${record.opponentName} | MVP ${record.mvpName}`);
+
     triggerClick(continueBtn);
     return result;
   }
@@ -772,12 +1079,19 @@
         break;
       }
 
+      // The Playoffs bracket view in particular can take a beat to finish
+      // rendering after the tab switch — its PLAY GAME button isn't always
+      // there yet the instant the tab click resolves. waitFor() below still
+      // polls for up to 8s regardless, but giving it a head start here
+      // avoids racing a bracket screen that's still mid-transition.
+      await sleep(1500);
+
       const left = readDailyGamesLeft();
       if (left !== null) console.log(`  📅 Daily games left today: ${left}`);
 
       let playBtn;
       try {
-        playBtn = await waitFor(() => findPlayGameButton(), { timeout: 5000, label: 'Season PLAY GAME button' });
+        playBtn = await waitFor(() => findPlayGameButton(), { timeout: 8000, label: 'Season PLAY GAME button' });
       } catch {
         console.log('  ℹ️ No PLAY GAME button found — season games done');
         break;

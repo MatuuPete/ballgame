@@ -235,15 +235,61 @@
     });
     if (btn) return btn;
 
-    // 2. Fallback for the Season playoffs button
-    return [...document.querySelectorAll(CLICKABLE)].find(el => {
+    // 2. Loose match, still restricted to real <button>/<a>/role="button" elements.
+    btn = [...document.querySelectorAll(CLICKABLE)].find(el => {
       const text = (el.textContent || '').toUpperCase().replace(/\s+/g, ' ').trim();
       return (
         (text.includes('PLAY GAME') || /^PLAY\s*GAME/.test(text)) &&
         isVisible(el) &&
         isEnabled(el)
       );
-    }) || null;
+    });
+    if (btn) return btn;
+
+    // 3. Playoffs bracket screen: its "PLAY GAME N" CTA is frequently a
+    // styled <div>/<span> rather than a real button/link, so CLICKABLE never
+    // matches it — and the game number is often its own nested badge/span,
+    // so no single element's OWN direct text reads "PLAY GAME N" either.
+    // Aggregated .textContent (same as tiers 1-2, just without the CLICKABLE
+    // restriction) is what actually captures it regardless of how the label
+    // is split internally. Wrapped in try/catch: the bracket screen can still
+    // be mid-transition when this runs, and a node going stale between the
+    // querySelectorAll and the getBoundingClientRect calls below would
+    // otherwise throw and surface only as an opaque "Script error".
+    try {
+      const candidates = [...document.querySelectorAll('body *')].filter(el => {
+        const text = (el.textContent || '').toUpperCase().replace(/\s+/g, ' ').trim();
+        return /^PLAY GAME\s*\d+/.test(text) && isVisible(el);
+      });
+      if (!candidates.length) return null;
+
+      // Smallest matching element is where the split text converges — the
+      // label itself, not an outer wrapper.
+      const smallest = candidates.reduce((best, el) => {
+        const a = el.getBoundingClientRect();
+        const b = best.getBoundingClientRect();
+        return (a.width * a.height) < (b.width * b.height) ? el : best;
+      });
+
+      // Return the actual control, not the label: isEnabled() is about to be
+      // called on whatever this returns, and label spans are frequently
+      // styled pointer-events:none (so clicks always land on the outer
+      // button, not gaps between letters) — checking THAT would make a
+      // perfectly clickable button read as disabled. Prefer a real
+      // CLICKABLE ancestor; failing that, climb until pointer-events stops
+      // being 'none'.
+      const clickableAncestor = smallest.closest(CLICKABLE);
+      if (clickableAncestor) return clickableAncestor;
+
+      let control = smallest;
+      for (let node = smallest, depth = 0; node && depth < 4; node = node.parentElement, depth++) {
+        if (getComputedStyle(node).pointerEvents !== 'none') { control = node; break; }
+      }
+      return control;
+    } catch (err) {
+      console.warn('  ⚠️ PLAY GAME wide-scan failed: ' + err.message);
+      return null;
+    }
   }
 
   function readDailyGamesLeft() {
@@ -1086,12 +1132,19 @@
         break;
       }
 
+      // The Playoffs bracket view in particular can take a beat to finish
+      // rendering after the tab switch — its PLAY GAME button isn't always
+      // there yet the instant the tab click resolves. waitFor() below still
+      // polls for up to 8s regardless, but giving it a head start here
+      // avoids racing a bracket screen that's still mid-transition.
+      await sleep(1500);
+
       const left = readDailyGamesLeft();
       if (left !== null) console.log(`  📅 Daily games left today: ${left}`);
 
       let playBtn;
       try {
-        playBtn = await waitFor(() => findPlayGameButton(), { timeout: 5000, label: 'Season PLAY GAME button' });
+        playBtn = await waitFor(() => findPlayGameButton(), { timeout: 8000, label: 'Season PLAY GAME button' });
       } catch (e) {
         if (isStop(e)) throw e;
         console.log('  ℹ️ No PLAY GAME button found — season games done');
