@@ -118,6 +118,15 @@ public partial class MainWindow : Window
         Closed += (_, _) => _logFlushTimer.Stop();
 
         ApplyRightPanelVisibility(_uiSettings.RightPanelCollapsed);
+        ApplySectionCollapse(GameModesContent, GameModesToggleButton, _uiSettings.GameModesCollapsed);
+        ApplySectionCollapse(PreGameSetupContent, PreGameSetupToggleButton, _uiSettings.PreGameSetupCollapsed);
+        ApplyOutputSectionCollapse(_uiSettings.MatchHistoryCollapsed);
+
+        if (!string.IsNullOrWhiteSpace(_uiSettings.AccentColorHex))
+        {
+            try { ApplyAccentColor((Color)ColorConverter.ConvertFromString(_uiSettings.AccentColorHex)); }
+            catch { /* corrupt saved value — keep the built-in default */ }
+        }
     }
 
     // ==================================================================
@@ -203,6 +212,179 @@ public partial class MainWindow : Window
             MainSplitter.Visibility = Visibility.Visible;
             PanelToggleButton.ToolTip = "Hide control panel";
         }
+    }
+
+    // ==================================================================
+    // Per-box collapse (play modes / pre-game setup / match history)
+    // ==================================================================
+
+    private static void ApplySectionCollapse(UIElement content, Button toggle, bool collapsed)
+    {
+        content.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        toggle.Content = collapsed ? "▸" : "▾";
+        toggle.ToolTip = collapsed ? "Expand" : "Minimize";
+    }
+
+    /// <summary>
+    /// The match-history/log box's row uses Height="*" so it fills whatever
+    /// space is left in the panel — collapsing just the TabControl's
+    /// Visibility wouldn't shrink the row, so the row height is switched to
+    /// Auto (and back to "*") alongside it.
+    /// </summary>
+    private void ApplyOutputSectionCollapse(bool collapsed)
+    {
+        ApplySectionCollapse(OutputTabs, MatchHistoryToggleButton, collapsed);
+        OutputRow.MinHeight = collapsed ? 0 : 160;
+        OutputRow.Height = collapsed ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+    }
+
+    private void GameModesToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        _uiSettings.GameModesCollapsed = !_uiSettings.GameModesCollapsed;
+        ApplySectionCollapse(GameModesContent, GameModesToggleButton, _uiSettings.GameModesCollapsed);
+        _uiSettings.Save();
+    }
+
+    private void PreGameSetupToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        _uiSettings.PreGameSetupCollapsed = !_uiSettings.PreGameSetupCollapsed;
+        ApplySectionCollapse(PreGameSetupContent, PreGameSetupToggleButton, _uiSettings.PreGameSetupCollapsed);
+        _uiSettings.Save();
+    }
+
+    private void MatchHistoryToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        _uiSettings.MatchHistoryCollapsed = !_uiSettings.MatchHistoryCollapsed;
+        ApplyOutputSectionCollapse(_uiSettings.MatchHistoryCollapsed);
+        _uiSettings.Save();
+    }
+
+    // ==================================================================
+    // Accent colour
+    // ==================================================================
+
+    private static readonly (string Name, string Hex)[] AccentPresets =
+    {
+        ("Orange", "#FF6B1A"),
+        ("Purple", "#8F41FF"),
+        ("Blue",   "#3B82F6"),
+        ("Green",  "#22C55E"),
+        ("Red",    "#EF4444"),
+        ("Pink",   "#EC4899"),
+        ("Teal",   "#14B8A6"),
+        ("Amber",  "#F59E0B"),
+    };
+
+    /// <summary>
+    /// Small swatch grid — click one to make it the app's accent colour.
+    /// A Popup rather than a ContextMenu: a raw WrapPanel added to a Menu's
+    /// Items collection depends on Menu's non-MenuItem auto-wrapping
+    /// behaviour, which isn't worth relying on here — a Popup's Child can be
+    /// any single element with no such ambiguity.
+    /// </summary>
+    private void ThemeColorButton_Click(object sender, RoutedEventArgs e)
+    {
+        var popup = new System.Windows.Controls.Primitives.Popup
+        {
+            PlacementTarget = ThemeColorButton,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            VerticalOffset = 4,
+            StaysOpen = false,
+            AllowsTransparency = true
+        };
+
+        var swatches = new WrapPanel { Width = 176 };
+
+        foreach (var (name, hex) in AccentPresets)
+        {
+            var color = (Color)ColorConverter.ConvertFromString(hex);
+            var swatch = new Border
+            {
+                Width = 26,
+                Height = 26,
+                CornerRadius = new CornerRadius(13),
+                // Same dark-to-light gradient the button itself will use —
+                // the swatch is a preview, not just a colour label.
+                Background = MakeGradient(color, Lighten(color, 0.4), 0xFF),
+                Margin = new Thickness(3),
+                Cursor = Cursors.Hand,
+                ToolTip = name
+            };
+            swatch.MouseLeftButtonUp += (_, _) =>
+            {
+                _uiSettings.AccentColorHex = hex;
+                ApplyAccentColor(color);
+                _uiSettings.Save();
+                popup.IsOpen = false;
+            };
+            swatches.Children.Add(swatch);
+        }
+
+        var header = new TextBlock
+        {
+            Text = "ACCENT COLOUR",
+            Foreground = (Brush)FindResource("FgMuted"),
+            FontSize = 10,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(2, 0, 0, 6)
+        };
+
+        var content = new StackPanel { Children = { header, swatches } };
+
+        popup.Child = new Border
+        {
+            Background = (Brush)FindResource("PanelBg"),
+            BorderBrush = (Brush)FindResource("Border"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(10),
+            Child = content
+        };
+
+        popup.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Mutates the shared Accent/AccentSoft brush instances rather than
+    /// replacing the resource entries — every {StaticResource Accent} usage
+    /// across the app holds a reference to the SAME brush object, so this
+    /// updates the whole UI live without needing DynamicResource anywhere.
+    /// </summary>
+    /// <summary>
+    /// Replaces the Accent/AccentSoft resource entries outright rather than
+    /// mutating the existing brushes' Color — brushes loaded from XAML are
+    /// frozen by the compiler as a perf optimisation, so mutating one throws
+    /// "object is in a read-only state". Every {DynamicResource Accent}
+    /// usage across the app picks up a replaced dictionary entry
+    /// automatically; {StaticResource} would not have.
+    /// </summary>
+    private static void ApplyAccentColor(Color color)
+    {
+        var light = Lighten(color, 0.4);
+        var resources = Application.Current.Resources;
+        resources["Accent"] = new SolidColorBrush(color);
+        resources["AccentSoft"] = new SolidColorBrush(Color.FromArgb(0x33, color.R, color.G, color.B));
+        resources["AccentGradient"] = MakeGradient(color, light, 0xFF);
+        resources["AccentSoftGradient"] = MakeGradient(color, light, 0x40);
+    }
+
+    /// <summary>Blends toward white — 0 = unchanged, 1 = pure white.</summary>
+    private static Color Lighten(Color c, double amount) => Color.FromRgb(
+        (byte)(c.R + (255 - c.R) * amount),
+        (byte)(c.G + (255 - c.G) * amount),
+        (byte)(c.B + (255 - c.B) * amount));
+
+    /// <summary>
+    /// Left to right, dark dominant: solid dark for the first 65%, then
+    /// eases into light over the remaining 35%.
+    /// </summary>
+    private static LinearGradientBrush MakeGradient(Color dark, Color light, byte alpha)
+    {
+        var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(alpha, dark.R, dark.G, dark.B), 0));
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(alpha, dark.R, dark.G, dark.B), 0.65));
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(alpha, light.R, light.G, light.B), 1));
+        return brush;
     }
 
     // ==================================================================
@@ -735,6 +917,13 @@ public partial class MainWindow : Window
                     Log($"Injected {module}.", LogLevel.Debug);
                 }
 
+                // tank.js defines window.fillTankToCapacity, which
+                // runScrimmagePhase() calls mid-run to auto-refill stamina —
+                // must be loaded before automation.js can reach that point.
+                var tankSource = await LoadScriptAsync("tank.js");
+                await Browser.CoreWebView2.ExecuteScriptAsync(tankSource);
+                Log("Injected tank.js.", LogLevel.Debug);
+
                 _automationSource = await LoadScriptAsync("automation.js");
                 await Browser.CoreWebView2.ExecuteScriptAsync(_automationSource);
 
@@ -750,6 +939,103 @@ public partial class MainWindow : Window
         {
             SetRunningState(false);
             Log("Failed to start automation: " + ex.Message, LogLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Manual override for BIG3's mid-session substitution — bypasses the
+    /// Q2/clock gate entirely, for testing the swap or triggering it on
+    /// demand without waiting for the automatic condition.
+    /// </summary>
+    private async void Big3SubNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_webViewReady) { Log("WebView2 is not ready yet.", LogLevel.Warn); return; }
+
+        try
+        {
+            // Reloaded fresh in case the script was never injected this
+            // session (e.g. the button is pressed without Start having run
+            // first) — idempotent either way, same as the Start-time load.
+            var big3Source = await LoadScriptAsync("big3.js");
+            await Browser.CoreWebView2.ExecuteScriptAsync(big3Source);
+
+            var result = await Browser.CoreWebView2.ExecuteScriptAsync(
+                "(typeof window.performBig3SubNow === 'function') ? window.performBig3SubNow({}) : 'no-sub';");
+            Log("performBig3SubNow() dispatched. Immediate return: " + result, LogLevel.Debug);
+        }
+        catch (Exception ex)
+        {
+            Log("Manual BIG3 sub failed: " + ex.Message, LogLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Opens Alliance, clicks "Donate funds", enters 100, and clicks DONATE.
+    /// </summary>
+    private async void AllianceDonationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_webViewReady) { Log("WebView2 is not ready yet.", LogLevel.Warn); return; }
+
+        try
+        {
+            var donationSource = await LoadScriptAsync("donation.js");
+            await Browser.CoreWebView2.ExecuteScriptAsync(donationSource);
+
+            var result = await Browser.CoreWebView2.ExecuteScriptAsync(
+                "(typeof window.donateToAlliance === 'function') ? window.donateToAlliance(100) : 'no-donate';");
+            Log("donateToAlliance(100) dispatched. Immediate return: " + result, LogLevel.Debug);
+        }
+        catch (Exception ex)
+        {
+            Log("Alliance donation failed: " + ex.Message, LogLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Opens the Stamina Tank and randomly fills it to capacity. Awaited
+    /// (not fire-and-forget) since it can click "+" many times in a row —
+    /// letting ExecuteScriptAsync return only once the whole sequence
+    /// (including the FILL TANK click) has actually finished gives an
+    /// honest true/false result instead of an immediate but meaningless one.
+    /// </summary>
+    private async void FillTankButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_webViewReady) { Log("WebView2 is not ready yet.", LogLevel.Warn); return; }
+
+        try
+        {
+            var tankSource = await LoadScriptAsync("tank.js");
+            await Browser.CoreWebView2.ExecuteScriptAsync(tankSource);
+
+            var result = await Browser.CoreWebView2.ExecuteScriptAsync(
+                "(typeof window.fillTankToCapacity === 'function') ? window.fillTankToCapacity() : 'no-fill';");
+            Log("fillTankToCapacity() dispatched. Immediate return: " + result, LogLevel.Debug);
+        }
+        catch (Exception ex)
+        {
+            Log("Fill tank failed: " + ex.Message, LogLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Opens Tasks, waits 1s, and claims all ready Alliance task rewards.
+    /// </summary>
+    private async void TaskClaimingButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_webViewReady) { Log("WebView2 is not ready yet.", LogLevel.Warn); return; }
+
+        try
+        {
+            var tasksSource = await LoadScriptAsync("tasks.js");
+            await Browser.CoreWebView2.ExecuteScriptAsync(tasksSource);
+
+            var result = await Browser.CoreWebView2.ExecuteScriptAsync(
+                "(typeof window.claimAllianceTasks === 'function') ? window.claimAllianceTasks() : 'no-claim';");
+            Log("claimAllianceTasks() dispatched. Immediate return: " + result, LogLevel.Debug);
+        }
+        catch (Exception ex)
+        {
+            Log("Task claiming failed: " + ex.Message, LogLevel.Error);
         }
     }
 
@@ -906,8 +1192,7 @@ public partial class MainWindow : Window
     /// <summary>"RANK PLAY" -> "Rank Play", for use in a sentence.</summary>
     private static string Titleise(string header) =>
         System.Globalization.CultureInfo.CurrentCulture.TextInfo
-            .ToTitleCase(header.ToLowerInvariant())
-            .Replace("Rookieg", "RookieG");
+            .ToTitleCase(header.ToLowerInvariant());
 
     /// <summary>Editing a field by hand clears the preset selection.</summary>
     private void Setting_Changed(object sender, TextChangedEventArgs e)

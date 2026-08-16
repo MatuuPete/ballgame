@@ -32,6 +32,8 @@
   const MORALE_THRESHOLD = 45;
   const MAX_TIMEOUTS_PER_MATCH = 2;
   const DEFEAT_DELAY = 10000;
+  /** Scrimmage only — shorter cooldown before re-queueing QUICK PLAY after a loss. */
+  const SCRIMMAGE_DEFEAT_DELAY = 5000;
   const MAX_SEASON_GAMES = 3;
 
   const ENEMY_PROPS = [
@@ -911,6 +913,164 @@
     return 'clicked';
   }
 
+  // ==================== GAME PLAN (SCRIMMAGE ONLY) ====================
+  // Sets the Offense/Defense strategy once per match, at Q1 with the clock
+  // at or below 11:00 remaining: open PLAN, pick Triangle (Offense), wait
+  // 25s, open PLAN again, pick Triangle-and-Two (Defense). Same
+  // quarter+clock polling pattern already proven for BIG3's bench swap
+  // (readQuarter/readGameClockSeconds — ported from big3.js). Only wired
+  // into startInMatchMonitor() below, which only runs during Scrimmage
+  // matches — not Season or the other modes.
+
+  /**
+   * Small, standalone quarter label — "Q1".."Q4". Matched as an exact,
+   * short piece of text rather than a substring so it can't pick up an
+   * unrelated sentence that happens to mention a quarter in passing.
+   */
+  function readQuarter() {
+    const el = [...document.querySelectorAll('body *')].find(node =>
+      isVisible(node) && /^Q\d+$/i.test(directText(node)));
+    return el ? directText(el).toUpperCase() : null;
+  }
+
+  /**
+   * The live match clock ("1:59", "11:23", etc.), in seconds remaining.
+   * Matched narrowly (1-2 digits, colon, exactly 2 digits) so it can't
+   * collide with other H:MM:SS-style countdowns elsewhere on the site.
+   */
+  function readGameClockSeconds() {
+    const el = [...document.querySelectorAll('body *')].find(node =>
+      isVisible(node) && /^\d{1,2}:\d{2}$/.test(directText(node)));
+    if (!el) return null;
+    const [min, sec] = directText(el).split(':').map(Number);
+    return min * 60 + sec;
+  }
+
+  /** Control Deck button — same split-label pattern as SUB/TO ("PLAN"/"COACH"). */
+  function findPlanButton() {
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const inControlDeck = (el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.left > vw * 0.5 && rect.top > vh * 0.5; // Control Deck corner
+    };
+
+    // 1. Real <button>/<a>/role="button" element — same technique that
+    // works for SUB and TO.
+    let candidates = [...document.querySelectorAll(CLICKABLE)].filter(el =>
+      isVisible(el) && isEnabled(el) && /\bPLAN\b/.test(deepText(el)) && inControlDeck(el));
+    if (candidates.length) {
+      return candidates.reduce((best, el) => {
+        const a = el.getBoundingClientRect();
+        const b = best.getBoundingClientRect();
+        return (a.width * a.height) < (b.width * b.height) ? el : best;
+      });
+    }
+
+    // 2. Not a semantic clickable element — same situation the Season
+    // PLAY GAME button turned out to be. Scan every element in the Control
+    // Deck corner instead and climb to the nearest clickable ancestor.
+    candidates = [...document.querySelectorAll('body *')].filter(el =>
+      isVisible(el) && /\bPLAN\b/.test(deepText(el)) && inControlDeck(el));
+    if (!candidates.length) return null;
+
+    const smallest = candidates.reduce((best, el) => {
+      const a = el.getBoundingClientRect();
+      const b = best.getBoundingClientRect();
+      return (a.width * a.height) < (b.width * b.height) ? el : best;
+    });
+    return smallest.closest(CLICKABLE) || smallest;
+  }
+
+  /**
+   * The GAME PLAN overlay. Found by its own heading text, then climbed to a
+   * container that also holds both "OFFENSE" and "DEFENSE" section text and
+   * more than one clickable element — the panel itself, not the heading.
+   */
+  function findGamePlanOverlay() {
+    const headings = [...document.querySelectorAll('body *')].filter(el =>
+      isVisible(el) && directText(el).toUpperCase().trim() === 'GAME PLAN');
+
+    for (const heading of headings) {
+      let node = heading.parentElement;
+      for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+        const text = (node.textContent || '').toUpperCase();
+        if (text.includes('OFFENSE') && text.includes('DEFENSE') && node.querySelectorAll(CLICKABLE).length > 1) {
+          return node;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A strategy row inside the overlay, matched by its exact name (e.g.
+   * "Triangle" vs. "Triangle-and-Two" — distinct strings, so no Offense/
+   * Defense column scoping is needed to tell them apart). Returns the
+   * smallest matching element climbed to its nearest clickable ancestor —
+   * the row/SELEC control, not just the name text.
+   */
+  function findStrategyOption(overlay, strategyName) {
+    const target = strategyName.toUpperCase().trim();
+    const hits = [...overlay.querySelectorAll('*')].filter(el =>
+      isVisible(el) && directText(el).toUpperCase().trim() === target);
+    if (!hits.length) return null;
+    const smallest = hits.reduce((best, el) => {
+      const a = el.getBoundingClientRect();
+      const b = best.getBoundingClientRect();
+      return (a.width * a.height) < (b.width * b.height) ? el : best;
+    });
+    return smallest.closest(CLICKABLE) || smallest;
+  }
+
+  /** Opens PLAN, selects one strategy by name, then closes the overlay. */
+  async function selectGamePlanOption(strategyName, { timeout = 10000 } = {}) {
+    const planBtn = findPlanButton();
+    if (!planBtn) throw new Error('"PLAN" control not found in the Control Deck.');
+    triggerClick(planBtn);
+
+    const overlay = await waitFor(() => findGamePlanOverlay(),
+      { timeout, label: 'GAME PLAN overlay' });
+
+    const option = await waitFor(() => findStrategyOption(overlay, strategyName),
+      { timeout, label: `"${strategyName}" option`, root: overlay });
+
+    triggerClick(option);
+    console.log(`  📋 Selected game plan option: "${strategyName}"`);
+    await sleep(400);
+
+    if (isVisible(overlay)) {
+      const closeBtn =
+        [...overlay.querySelectorAll('[aria-label]')].find(el =>
+          /close/i.test(el.getAttribute('aria-label') || '') && isVisible(el)) ||
+        [...overlay.querySelectorAll('[class*="close" i]')].find(el => isVisible(el) && isEnabled(el));
+
+      if (closeBtn) {
+        triggerClick(closeBtn);
+        console.log('  ✔️ Closed GAME PLAN overlay.');
+      }
+    }
+  }
+
+  /**
+   * The actual sequence, triggered once per match by startInMatchMonitor()
+   * below once Q1/11:00 is reached: Triangle (Offense), wait 25s,
+   * Triangle-and-Two (Defense). Not awaited by its caller — runs alongside
+   * the rest of the monitor's per-tick checks rather than blocking them for
+   * the ~25s this takes.
+   */
+  async function runStartOfQuarterGamePlan() {
+    try {
+      await selectGamePlanOption('Triangle');
+      await sleep(25000);
+      await selectGamePlanOption('Triangle-and-Two');
+    } catch (err) {
+      if (isStop(err)) return;
+      console.warn('  ⚠️ Could not set the starting game plan: ' + err.message);
+      post({ type: 'error', text: 'Could not set the starting game plan: ' + err.message, source: 'automation' });
+    }
+  }
+
   // ==================== IN-MATCH MONITOR ====================
 
   function startInMatchMonitor({ interval = 1000 } = {}) {
@@ -920,9 +1080,26 @@
     let lastMoraleLog = 0;
     let busy = false;
     let alive = true;
+    let gamePlanBusy = false;
+    let gamePlanDone = false;
 
     const timer = setInterval(async () => {
-      if (!alive || busy || stopped) return;
+      if (!alive || stopped) return;
+
+      // Start-of-quarter game plan trigger (Scrimmage only), fires exactly
+      // once per match. Deliberately independent of `busy` below — a prop
+      // or timeout action landing on the same tick must not starve this of
+      // its one shot at the Q1/11:00 window.
+      if (!gamePlanDone && !gamePlanBusy) {
+        const quarter = readQuarter();
+        const clock = readGameClockSeconds();
+        if (quarter === 'Q1' && clock !== null && clock <= 11 * 60) {
+          gamePlanBusy = true;
+          runStartOfQuarterGamePlan().finally(() => { gamePlanBusy = false; gamePlanDone = true; });
+        }
+      }
+
+      if (busy) return;
 
       const activeProp = readActivePropBanner();
       if (activeProp) {
@@ -1026,9 +1203,32 @@
   }
 
   /**
-   * Opens the Match Hall by clicking MATCH in the bottom dock. Preferred over
-   * navigating: a page reload throws away the session's in-memory state and
-   * costs several seconds.
+   * Generic map-overlay button, e.g. the "STADIUM" label floating over its
+   * building on the City map. Unlike findDockButton, NOT constrained to the
+   * bottom-dock region — these labels sit wherever their building is drawn,
+   * which varies with the map layout.
+   */
+  function findMapLabel(label) {
+    const target = label.toUpperCase().replace(/\s+/g, ' ').trim();
+    const hits = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (!isVisible(el)) continue;
+      const t = directText(el).toUpperCase().replace(/\s+/g, ' ').trim();
+      if (t !== target) continue;
+      const r = el.getBoundingClientRect();
+      hits.push({ el, area: r.width * r.height });
+    }
+    if (!hits.length) return null;
+    const label_el = hits.reduce((a, b) => (a.area <= b.area ? a : b)).el;
+    return label_el.closest(CLICKABLE) || label_el.parentElement || label_el;
+  }
+
+  /**
+   * Opens the Match Hall. Interface update: the bottom dock's MATCH button
+   * was replaced by a CITY button that opens a city-map overlay; reaching
+   * the Match Hall now means clicking CITY, then the STADIUM building on
+   * that map. Preferred over navigating: a page reload throws away the
+   * session's in-memory state and costs several seconds.
    */
   async function openMatchHall({ timeout = 15000 } = {}) {
     if (isMatchHallOpen()) {
@@ -1036,19 +1236,33 @@
       return true;
     }
 
-    const btn = findDockButton('MATCH');
-    if (!btn) {
-      console.warn('  ⚠️ MATCH button not found in the bottom dock.');
+    const cityBtn = findDockButton('CITY');
+    if (!cityBtn) {
+      console.warn('  ⚠️ CITY button not found in the bottom dock.');
       post({
         type: 'error',
-        text: 'Could not find the MATCH button. Make sure you are signed in and on the main screen.',
+        text: 'Could not find the CITY button. Make sure you are signed in and on the main screen.',
         source: 'automation'
       });
       return false;
     }
 
-    triggerClick(btn);
-    console.log('  🖱️ Clicked MATCH in the bottom dock.');
+    triggerClick(cityBtn);
+    console.log('  🖱️ Clicked CITY in the bottom dock.');
+
+    let stadiumBtn;
+    try {
+      stadiumBtn = await waitFor(() => findMapLabel('STADIUM'),
+        { timeout, stableFor: 300, interval: 200, label: 'STADIUM building' });
+    } catch (err) {
+      if (isStop(err)) throw err;
+      console.warn('  ⚠️ STADIUM building did not appear: ' + err.message);
+      post({ type: 'error', text: 'The city map did not show a STADIUM building in time.', source: 'automation' });
+      return false;
+    }
+
+    triggerClick(stadiumBtn);
+    console.log('  🖱️ Clicked STADIUM.');
 
     try {
       await waitFor(() => isMatchHallOpen() || null,
@@ -1249,6 +1463,16 @@
         : `${target} match(es) queued.`
     });
 
+    // Auto-refill the stamina tank once per session, timed off the actual
+    // match count for this run (not a fixed match number) — under 100
+    // matches fires at the halfway point, 100+ fires at a third of the way
+    // through, since a fixed threshold would mean firing almost
+    // immediately on a huge run or never on a short one.
+    const tankRefillThreshold = target < 100
+      ? Math.round(target * 0.5)
+      : Math.round(target / 3);
+    let tankRefilled = false;
+
     let completed = 0, failed = 0, wins = 0, losses = 0, consecutiveFailures = 0;
     await resumeIfMatchInProgress();
 
@@ -1271,6 +1495,8 @@
       try {
         await clickQuickPlayWhenJoinGone();
         console.log('  ✅ QUICK PLAY clicked — match starting');
+        // The game plan sequence itself fires from inside the monitor once
+        // Q1/11:00 is reached — see startInMatchMonitor().
         monitor = startInMatchMonitor();
         result = await clickContinueWhenMatchEnds();
         console.log('  ✅ CONTINUE clicked — exiting summary');
@@ -1303,9 +1529,27 @@
         if (monitor) monitor.stop();
       }
 
+      // Between matches only — never mid-match. fillTankToCapacity() ends
+      // by navigating CITY -> STADIUM, which lands back in the Match Hall
+      // on the SCRIMMAGE tab (its default), so the waitForLobby() call
+      // below still works normally right after this.
+      if (!tankRefilled && i >= tankRefillThreshold && !stopped) {
+        tankRefilled = true;
+        console.log(`\n💧 Match ${i}/${target} — refilling the stamina tank.`);
+        try {
+          if (typeof window.fillTankToCapacity === 'function') {
+            await window.fillTankToCapacity();
+          } else {
+            console.warn('  ⚠️ fillTankToCapacity() not available — tank.js may not be loaded.');
+          }
+        } catch (err) {
+          console.warn('  ⚠️ Stamina tank refill failed: ' + err.message);
+        }
+      }
+
       if (result === 'DEFEAT') {
-        console.log(`  ⏳ Defeat — waiting ${DEFEAT_DELAY / 1000}s`);
-        await sleep(DEFEAT_DELAY);
+        console.log(`  ⏳ Defeat — waiting ${SCRIMMAGE_DEFEAT_DELAY / 1000}s before re-queueing QUICK PLAY`);
+        await sleep(SCRIMMAGE_DEFEAT_DELAY);
       }
       try {
         await waitForLobby();

@@ -19,6 +19,34 @@
         <SolidColorBrush x:Key="Danger"         Color="#FFE05252"/>
         <SolidColorBrush x:Key="OpaqueFallback" Color="#FF16161A"/>
 
+        <!-- Dark-to-light gradients, left to right, dark dominant — dark
+             holds solid until 65% across, then transitions to the light
+             tint over the remaining 35%. Replaced alongside Accent/
+             AccentSoft whenever the user picks a theme colour (see
+             ApplyAccentColor) — these defaults match the built-in orange.
+             AccentGradient is the solid button fill; AccentSoftGradient is
+             the same idea at low opacity, for "selected" backgrounds like a
+             checked preset chip. -->
+        <LinearGradientBrush x:Key="AccentGradient" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Color="#FFFF6B1A" Offset="0"/>
+            <GradientStop Color="#FFFF6B1A" Offset="0.65"/>
+            <GradientStop Color="#FFFFA676" Offset="1"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="AccentSoftGradient" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Color="#40FF6B1A" Offset="0"/>
+            <GradientStop Color="#40FF6B1A" Offset="0.65"/>
+            <GradientStop Color="#40FFA676" Offset="1"/>
+        </LinearGradientBrush>
+
+        <!-- Stop/destructive actions get the same dark-to-light gradient
+             treatment as the theme colour, for visual consistency with
+             every other button — this one is fixed, not user-selectable. -->
+        <LinearGradientBrush x:Key="DangerGradient" StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Color="#FFE05252" Offset="0"/>
+            <GradientStop Color="#FFE05252" Offset="0.65"/>
+            <GradientStop Color="#FFEC9797" Offset="1"/>
+        </LinearGradientBrush>
+
         <!-- Title bar -->
         <SolidColorBrush x:Key="TitleBarBg"   Color="#7A15151A"/>
         <SolidColorBrush x:Key="CaptionHover" Color="#1FFFFFFF"/>
@@ -47,8 +75,8 @@
             <Setter Property="BorderBrush"     Value="{StaticResource BorderSoft}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding"         Value="8,6"/>
-            <Setter Property="CaretBrush"      Value="{StaticResource Accent}"/>
-            <Setter Property="SelectionBrush"  Value="{StaticResource Accent}"/>
+            <Setter Property="CaretBrush"      Value="{DynamicResource Accent}"/>
+            <Setter Property="SelectionBrush"  Value="{DynamicResource Accent}"/>
             <Setter Property="FontFamily"      Value="Consolas"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Template">
@@ -68,7 +96,7 @@
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Border}"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
@@ -79,30 +107,40 @@
             </Setter>
         </Style>
 
-        <!-- ============ Button ============ -->
+        <!-- ============ Button ============
+             Flat modern rounded rectangle: filled with a dark-to-light
+             gradient, left to right, dark dominant (~65/35), of whatever
+             Background is set (AccentGradient by default, so it follows the
+             user's chosen theme colour — e.g. a "red" theme fills mostly
+             red, easing into light-red toward the right edge). No gloss/
+             bevel/shadow layers — those read as a dated "Web 2.0" button,
+             not a modern one. Hover/press feedback is just a subtle opacity
+             dip. -->
         <Style TargetType="Button">
-            <Setter Property="Background"      Value="{StaticResource Accent}"/>
-            <Setter Property="Foreground"      Value="#FF17171B"/>
+            <Setter Property="Background"      Value="{DynamicResource AccentGradient}"/>
+            <Setter Property="Foreground"      Value="#FFFFFFFF"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding"         Value="14,9"/>
-            <Setter Property="FontWeight"      Value="SemiBold"/>
-            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="Padding"         Value="20,11"/>
+            <Setter Property="FontFamily"      Value="Segoe UI"/>
+            <Setter Property="FontWeight"      Value="Bold"/>
+            <Setter Property="FontSize"        Value="13"/>
             <Setter Property="Cursor"          Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
-                                CornerRadius="5"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                CornerRadius="14">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.86"/>
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.9"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.7"/>
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.78"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Bd" Property="Background" Value="#2EFFFFFF"/>
@@ -116,7 +154,7 @@
         </Style>
 
         <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Background" Value="{StaticResource Danger}"/>
+            <Setter Property="Background" Value="{StaticResource DangerGradient}"/>
             <Setter Property="Foreground" Value="White"/>
         </Style>
 
@@ -133,6 +171,19 @@
             <Setter Property="Width"      Value="32"/>
             <Setter Property="Height"     Value="30"/>
             <Setter Property="FontSize"   Value="13"/>
+        </Style>
+
+        <!-- Per-section minimize/expand chevron, used in the control panel's
+             three collapsible box headers. -->
+        <Style x:Key="CollapseToggleButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background"  Value="#1FFFFFFF"/>
+            <Setter Property="Foreground"  Value="{StaticResource FgMuted}"/>
+            <Setter Property="Padding"     Value="0"/>
+            <Setter Property="Width"       Value="22"/>
+            <Setter Property="Height"      Value="22"/>
+            <Setter Property="FontSize"    Value="10"/>
+            <Setter Property="FontWeight"  Value="Normal"/>
+            <Setter Property="Cursor"      Value="Hand"/>
         </Style>
 
         <!-- ============ Window caption buttons ============ -->
@@ -263,7 +314,7 @@
                                 <Ellipse x:Name="Dot"
                                          Grid.Column="0"
                                          Width="6" Height="6"
-                                         Fill="{StaticResource Accent}"
+                                         Fill="{DynamicResource Accent}"
                                          HorizontalAlignment="Left"
                                          VerticalAlignment="Center"
                                          Visibility="Collapsed"/>
@@ -286,7 +337,7 @@
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
-                                <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Foreground" Value="#FF6E6E7A"/>
@@ -328,7 +379,7 @@
                                 <Setter TargetName="Bd" Property="Background" Value="#80FFFFFF"/>
                             </Trigger>
                             <Trigger Property="IsDragging" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -420,9 +471,9 @@
                                 <Setter TargetName="Bd" Property="Background" Value="#2EFFFFFF"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background"  Value="{StaticResource AccentSoft}"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                                <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="Background"  Value="{DynamicResource AccentSoftGradient}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Accent}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
@@ -491,7 +542,7 @@
                                     Height="2"
                                     Margin="0,0,18,-1"
                                     VerticalAlignment="Bottom"
-                                    Background="{StaticResource Accent}"
+                                    Background="{DynamicResource Accent}"
                                     Visibility="Collapsed"/>
                         </Grid>
                         <ControlTemplate.Triggers>
@@ -560,7 +611,7 @@
                     <Setter Property="Background" Value="#14FFFFFF"/>
                 </Trigger>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
+                    <Setter Property="Background" Value="{DynamicResource AccentSoft}"/>
                     <Setter Property="Foreground" Value="{StaticResource Fg}"/>
                 </Trigger>
             </Style.Triggers>

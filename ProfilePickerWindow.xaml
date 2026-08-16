@@ -72,7 +72,7 @@
                                             <Setter TargetName="Bd" Property="Background" Value="#1AFFFFFF"/>
                                         </Trigger>
                                         <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoft}"/>
+                                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftGradient}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>

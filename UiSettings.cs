@@ -14,6 +14,17 @@ internal sealed class UiSettings
 {
     public bool RightPanelCollapsed { get; set; }
 
+    /// <summary>
+    /// "#RRGGBB", or null to use the app's built-in default accent (orange).
+    /// </summary>
+    public string? AccentColorHex { get; set; }
+
+    // Per-box minimize state for the three collapsible sections in the
+    // control panel: play modes, pre-game setup, and match history/log.
+    public bool GameModesCollapsed { get; set; }
+    public bool PreGameSetupCollapsed { get; set; }
+    public bool MatchHistoryCollapsed { get; set; }
+
     private static string SettingsPath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "KaHoopsArena", "ui-settings.json");

@@ -961,9 +961,32 @@
   }
 
   /**
-   * Opens the Match Hall by clicking MATCH in the bottom dock. Preferred over
-   * navigating: a page reload throws away the session's in-memory state and
-   * costs several seconds.
+   * Generic map-overlay button, e.g. the "STADIUM" label floating over its
+   * building on the City map. Unlike findDockButton, NOT constrained to the
+   * bottom-dock region — these labels sit wherever their building is drawn,
+   * which varies with the map layout.
+   */
+  function findMapLabel(label) {
+    const target = label.toUpperCase().replace(/\s+/g, ' ').trim();
+    const hits = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (!isVisible(el)) continue;
+      const t = directText(el).toUpperCase().replace(/\s+/g, ' ').trim();
+      if (t !== target) continue;
+      const r = el.getBoundingClientRect();
+      hits.push({ el, area: r.width * r.height });
+    }
+    if (!hits.length) return null;
+    const label_el = hits.reduce((a, b) => (a.area <= b.area ? a : b)).el;
+    return label_el.closest(CLICKABLE) || label_el.parentElement || label_el;
+  }
+
+  /**
+   * Opens the Match Hall. Interface update: the bottom dock's MATCH button
+   * was replaced by a CITY button that opens a city-map overlay; reaching
+   * the Match Hall now means clicking CITY, then the STADIUM building on
+   * that map. Preferred over navigating: a page reload throws away the
+   * session's in-memory state and costs several seconds.
    */
   async function openMatchHall({ timeout = 15000 } = {}) {
     if (isMatchHallOpen()) {
@@ -971,18 +994,31 @@
       return true;
     }
 
-    const btn = findDockButton('MATCH');
-    if (!btn) {
-      console.warn('  ⚠️ MATCH button not found in the bottom dock.');
+    const cityBtn = findDockButton('CITY');
+    if (!cityBtn) {
+      console.warn('  ⚠️ CITY button not found in the bottom dock.');
       bridge.send('error', {
-        text: 'Could not find the MATCH button. Make sure you are signed in and on the main screen.',
+        text: 'Could not find the CITY button. Make sure you are signed in and on the main screen.',
         source: 'ranked'
       });
       return false;
     }
 
-    triggerClick(btn);
-    console.log('  🖱️ Clicked MATCH in the bottom dock.');
+    triggerClick(cityBtn);
+    console.log('  🖱️ Clicked CITY in the bottom dock.');
+
+    let stadiumBtn;
+    try {
+      stadiumBtn = await waitFor(() => findMapLabel('STADIUM'),
+        { timeout, stableFor: 300, interval: 200, label: 'STADIUM building' });
+    } catch (err) {
+      console.warn('  ⚠️ STADIUM building did not appear: ' + err.message);
+      bridge.send('error', { text: 'The city map did not show a STADIUM building in time.', source: 'ranked' });
+      return false;
+    }
+
+    triggerClick(stadiumBtn);
+    console.log('  🖱️ Clicked STADIUM.');
 
     try {
       await waitFor(() => isMatchHallOpen() || null,

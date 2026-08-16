@@ -109,12 +109,12 @@
                             Margin="0,0,12,0"
                             Visibility="Collapsed">
                     <Ellipse Width="7" Height="7"
-                             Fill="{StaticResource Accent}"
+                             Fill="{DynamicResource Accent}"
                              VerticalAlignment="Center"
                              Margin="0,0,6,0"/>
                     <TextBlock x:Name="RunPillText"
                                Text="Running"
-                               Foreground="{StaticResource Accent}"
+                               Foreground="{DynamicResource Accent}"
                                FontSize="11"
                                VerticalAlignment="Center"/>
                 </StackPanel>
@@ -123,6 +123,19 @@
                 <StackPanel Grid.Column="4"
                             Orientation="Horizontal"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
+
+                    <!-- Theme colour picker: the swatch always shows the
+                         currently active accent, so it doubles as a status
+                         indicator, not just a button. -->
+                    <Button x:Name="ThemeColorButton"
+                            Style="{StaticResource CaptionButton}"
+                            Click="ThemeColorButton_Click"
+                            ToolTip="Change accent colour">
+                        <Ellipse Width="12" Height="12"
+                                 Fill="{DynamicResource Accent}"
+                                 Stroke="{StaticResource Fg}"
+                                 StrokeThickness="0.75"/>
+                    </Button>
 
                     <Button x:Name="PanelToggleButton"
                             Style="{StaticResource CaptionButton}"
@@ -239,7 +252,9 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="8"/>
-                    <RowDefinition Height="*" MinHeight="160"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="8"/>
+                    <RowDefinition x:Name="OutputRow" Height="*" MinHeight="160"/>
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0"
@@ -249,6 +264,24 @@
                         CornerRadius="8"
                         Padding="16">
                     <StackPanel>
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="PLAY MODES"
+                                       Style="{StaticResource SectionHeader}"
+                                       VerticalAlignment="Center"
+                                       Margin="0"/>
+                            <Button x:Name="GameModesToggleButton" Grid.Column="1"
+                                    Style="{StaticResource CollapseToggleButton}"
+                                    Content="&#x25BE;"
+                                    Click="GameModesToggleButton_Click"
+                                    ToolTip="Minimize"/>
+                        </Grid>
+
+                        <StackPanel x:Name="GameModesContent">
 
                         <!-- One tab per play mode. Start/Stop and the status
                              block sit BELOW the tabs, shared: there is only one
@@ -368,38 +401,6 @@
                                 </StackPanel>
                             </TabItem>
 
-                            <TabItem x:Name="RookieTab" Header="ROOKIEG PLAY">
-                                <Border Background="#14FFFFFF"
-                                        BorderBrush="{StaticResource BorderSoft}"
-                                        BorderThickness="1"
-                                        CornerRadius="7"
-                                        Padding="18,26"
-                                        Margin="0,4,0,0">
-                                    <StackPanel HorizontalAlignment="Center">
-                                        <TextBlock Text="RookieG Play"
-                                                   Foreground="{StaticResource Fg}"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"
-                                                   HorizontalAlignment="Center"/>
-                                        <Border Background="{StaticResource AccentSoft}"
-                                                CornerRadius="3"
-                                                Padding="8,3"
-                                                Margin="0,9,0,0"
-                                                HorizontalAlignment="Center">
-                                            <TextBlock Text="COMING SOON"
-                                                       FontSize="9.5"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="{StaticResource Accent}"/>
-                                        </Border>
-                                        <TextBlock Text="RookieG automation isn't built yet. Use Scrimmage Play for now."
-                                                   Style="{StaticResource FieldHint}"
-                                                   HorizontalAlignment="Center"
-                                                   TextAlignment="Center"
-                                                   MaxWidth="290"
-                                                   Margin="0,12,0,0"/>
-                                    </StackPanel>
-                                </Border>
-                            </TabItem>
 
                             <TabItem x:Name="BigThreeTab" Header="BIG3 PLAY">
                                 <StackPanel>
@@ -422,7 +423,7 @@
                                         <TextBlock Text="Sessions to play" Style="{StaticResource FieldLabel}"/>
                                         <TextBox x:Name="Big3MatchCountBox" Text="25"
                                                  ToolTip="How many BIG3 sessions to play before stopping."/>
-                                        <TextBlock Text="Selectors are still unverified placeholders — expect this to need tuning."
+                                        <TextBlock Text="The mid-session sub is still being verified — watch it the first few times."
                                                    Style="{StaticResource FieldHint}"/>
                                     </StackPanel>
 
@@ -434,6 +435,15 @@
                                                    Style="{StaticResource FieldHint}"/>
                                     </StackPanel>
                                 </Grid>
+
+                                <Button x:Name="Big3SubNowButton"
+                                        Content="Perform sub now"
+                                        Style="{StaticResource GhostButton}"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,14,0,0"
+                                        Padding="12,7"
+                                        Click="Big3SubNowButton_Click"
+                                        ToolTip="Manually trigger the bench substitution right now, regardless of quarter or clock."/>
 
                                 </StackPanel>
                             </TabItem>
@@ -480,11 +490,13 @@
                                              Height="4"
                                              Minimum="0" Maximum="100" Value="0"
                                              Background="#1FFFFFFF"
-                                             Foreground="{StaticResource Accent}"
+                                             Foreground="{DynamicResource Accent}"
                                              BorderThickness="0"
                                              Margin="0,10,0,0"/>
                             </StackPanel>
                         </Border>
+
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
@@ -493,13 +505,105 @@
                               Background="Transparent"
                               ResizeBehavior="PreviousAndNext"/>
 
+                <!-- Pre-game actions — fire immediately when clicked. -->
                 <Border Grid.Row="2"
                         Background="{StaticResource PanelBg}"
                         BorderBrush="{StaticResource BorderSoft}"
                         BorderThickness="1"
                         CornerRadius="8"
+                        Padding="16">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="PRE GAME SETUP"
+                                       Style="{StaticResource SectionHeader}"
+                                       VerticalAlignment="Center"
+                                       Margin="0"/>
+                            <Button x:Name="PreGameSetupToggleButton" Grid.Column="1"
+                                    Style="{StaticResource CollapseToggleButton}"
+                                    Content="&#x25BE;"
+                                    Click="PreGameSetupToggleButton_Click"
+                                    ToolTip="Minimize"/>
+                        </Grid>
+
+                        <StackPanel x:Name="PreGameSetupContent">
+
+                        <TextBlock Text="Alliance Donation donates 100. Fill the tank randomly fills to capacity. Task Claiming claims all ready Alliance task rewards."
+                                   Style="{StaticResource FieldHint}"
+                                   Margin="0,0,0,12"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Button x:Name="AllianceDonationButton" Grid.Column="0"
+                                    Content="Alliance Donation"
+                                    Style="{StaticResource GhostButton}"
+                                    Padding="12,9"
+                                    Click="AllianceDonationButton_Click"
+                                    ToolTip="Opens Alliance and donates 100 to alliance funds."/>
+
+                            <Button x:Name="FillTankButton" Grid.Column="2"
+                                    Content="Fill the tank"
+                                    Style="{StaticResource GhostButton}"
+                                    Padding="12,9"
+                                    Click="FillTankButton_Click"
+                                    ToolTip="Opens the Stamina Tank and randomly fills it to capacity."/>
+
+                            <Button x:Name="TaskClaimingButton" Grid.Column="4"
+                                    Content="Task Claiming"
+                                    Style="{StaticResource GhostButton}"
+                                    Padding="12,9"
+                                    Click="TaskClaimingButton_Click"
+                                    ToolTip="Opens Tasks and claims all ready Alliance task rewards."/>
+                        </Grid>
+
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <GridSplitter Grid.Row="3" Height="8"
+                              HorizontalAlignment="Stretch"
+                              Background="Transparent"
+                              ResizeBehavior="PreviousAndNext"/>
+
+                <Border Grid.Row="4"
+                        Background="{StaticResource PanelBg}"
+                        BorderBrush="{StaticResource BorderSoft}"
+                        BorderThickness="1"
+                        CornerRadius="8"
                         Padding="12">
-                    <TabControl x:Name="OutputTabs">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" Margin="4,0,4,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="OUTPUT"
+                                       Style="{StaticResource SectionHeader}"
+                                       VerticalAlignment="Center"
+                                       Margin="0"/>
+                            <Button x:Name="MatchHistoryToggleButton" Grid.Column="1"
+                                    Style="{StaticResource CollapseToggleButton}"
+                                    Content="&#x25BE;"
+                                    Click="MatchHistoryToggleButton_Click"
+                                    ToolTip="Minimize"/>
+                        </Grid>
+
+                    <TabControl x:Name="OutputTabs" Grid.Row="1">
 
                         <!-- ============ Tab 1: live console output ============ -->
                         <TabItem Header="MATCH HISTORY">
@@ -686,6 +790,7 @@
                         </TabItem>
 
                     </TabControl>
+                    </Grid>
                 </Border>
             </Grid>
         </Grid>
